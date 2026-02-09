@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>ENIT EVENT – Documentation</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        enit: {
+                            blue: '#163a8a',
+                            yellow: '#ffcc00',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+        .glass {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        .preserve-3d { transform-style: preserve-3d; }
+        .backface-hidden { backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
+        .perspective { perspective: 1000px; }
+    </style>
+</head>
+
+<body class="bg-gray-50 text-gray-800 min-h-screen font-['Outfit',_sans-serif]">
+
+    <!-- Modal Overlay -->
+    <div id="modalOverlay" class="fixed inset-0 bg-black/60 backdrop-blur-md z-[1000] hidden items-center justify-center p-4 transition-opacity duration-300 opacity-0">
+        <div id="eventModal" class="bg-white rounded-3xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto transform scale-95 transition-transform duration-300">
+            <div class="sticky top-0 bg-white border-b border-gray-100 p-6 flex justify-between items-center z-10">
+                <h2 class="text-2xl font-bold text-enit-blue flex items-center gap-3">
+                    <span class="p-2 bg-enit-blue text-white rounded-xl">✨</span>
+                    Créer un événement
+                </h2>
+                <button id="closeModal" class="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+            </div>
+            
+            <form id="eventForm" class="p-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Titre -->
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Titre de l'événement</label>
+                    <input type="text" id="titre" name="titre" required
+                        class="w-full px-5 py-3 border border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-enit-blue transition-all outline-none"
+                        placeholder="Ex: Forum ENIT-Entreprises">
+                </div>
+                <!-- Date -->
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Date</label>
+                    <input type="date" id="date" name="date" required
+                        class="w-full px-5 py-3 border border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-enit-blue transition-all outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Lieu</label>
+                    <input type="text" id="lat" name="lat" required
+                        class="w-full px-5 py-3 border border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-enit-blue transition-all outline-none"
+                        placeholder="Ex: Amphithéâtre A">
+                </div>
+                <!-- Categorie -->
+                <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Catégorie</label>
+                    <select id="categorie" name="categorie" required
+                        class="w-full px-5 py-3 border border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-enit-blue transition-all outline-none bg-white">
+                        <option value="forum">Forum</option>
+                        <option value="conference">Conférence</option>
+                        <option value="formation2">Ateliers</option>
+                        <option value="formation">Formations</option>
+                    </select>
+                </div>
+                <!-- Description -->
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Description</label>
+                    <textarea id="description" name="description" rows="3" required
+                        class="w-full px-5 py-3 border border-gray-200 rounded-xl focus:ring-4 focus:ring-blue-100 focus:border-enit-blue transition-all outline-none"
+                        placeholder="Décrivez l'événement..."></textarea>
+                </div>
+                <!-- Image -->
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-semibold text-gray-700 mb-2">Affiche</label>
+                    <div class="flex items-center justify-center w-full">
+                        <label class="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-xl cursor-pointer bg-gray-50 hover:bg-gray-100 transition-all">
+                            <div class="flex flex-col items-center justify-center pt-5 pb-6">
+                                <svg class="w-8 h-8 mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                                <p class="text-sm text-gray-500">Cliquez pour uploader l'affiche</p>
+                            </div>
+                            <input type="file" id="affiche" name="affiche" accept="image/*" class="hidden" />
+                        </label>
+                    </div>
+                    <img id="preview" class="hidden mt-4 rounded-xl max-w-xs shadow-lg border-4 border-white mx-auto">
+                </div>
+                <!-- Map -->
+                <div class="md:col-span-2 space-y-3">
+                    <label class="block text-sm font-semibold text-gray-700">Emplacement</label>
+                    <div id="map" class="h-64 rounded-2xl border-4 border-white shadow-xl z-0"></div>
+                    <input type="hidden" id="lat" name="lat">
+                    <input type="hidden" id="lng" name="lng">
+                </div>
+                <!-- Submit -->
+                <div class="md:col-span-2">
+                    <button type="submit"
+                        class="w-full bg-enit-blue text-white py-4 rounded-xl font-bold shadow-lg hover:shadow-blue-200 transition transform hover:-translate-y-1 active:scale-95">
+                        Enregistrer l'événement
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <header class="bg-white shadow-sm">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+                <img src="/uploads/LOGO_ENIT_300.png" alt="ENIT Logo" class="h-16 w-auto" />
+                <div>
+                    <h1 class="text-2xl font-bold tracking-tight text-enit-blue leading-tight">
+                        Ecole Nationale d'Ingénieurs de Tunis
+                    </h1>
+                    <p class="text-xs italic text-gray-500">L'école référence de Tunisie</p>
+                </div>
+            </div>
+            <div class="hidden lg:block">
+                <button id="openindex" class="bg-enit-yellow px-4 py-2 rounded text-sm font-bold text-enit-blue shadow-sm badge-enit hover:shadow-blue-200 transition transform hover:-translate-y-1 active:scale-95">
+                    Add Event
+                </button>
+            </div>
+        </div>
+        <nav class="bg-enit-blue">
+            <div class="max-w-7xl mx-auto px-6">
+                <ul class="flex space-x-8 text-white font-semibold py-3 text-sm uppercase tracking-wide">
+                    <li><a href="#forum" class="nav-link">Forum</a></li>
+                    <li><a href="#conference" class="nav-link">Conférence</a></li>
+                    <li><a href="#formation2" class="nav-link">Ateliers</a></li>
+                    <li><a href="#formation" class="nav-link">Formations</a></li>
+                    <li><a href="#chat" class="nav-link">AI Assistant</a></li>
+                </ul>
+            </div>
+        </nav>
+    </header>
+
+    <!-- Section Forum -->
+    <section id="forum" class="max-w-7xl mx-auto px-6 py-12 scroll-mt-24">
+        <h3 class="text-3xl font-extrabold mb-8 text-enit-blue border-b-4 border-enit-yellow inline-block pb-1 section-title-enit">Forum <span class="text-gray-400 text-sm font-normal">ENIT EVENT</span></h3>
+        <div id="forum-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+            <p class="text-gray-400">Chargement...</p>
+        </div>
+    </section>
+
+    <!-- Section Conférence -->
+    <section id="conference" class="max-w-7xl mx-auto px-6 py-12 scroll-mt-24">
+        <h3 class="text-3xl font-extrabold mb-8 text-enit-blue border-b-4 border-enit-yellow inline-block pb-1 section-title-enit">Conférence <span class="text-gray-400 text-sm font-normal">ENIT EVENT</span></h3>
+        <div id="conference-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+            <p class="text-gray-400">Chargement...</p>
+        </div>
+    </section>
+
+    <!-- Section Ateliers -->
+    <section id="formation2" class="max-w-7xl mx-auto px-6 py-12 scroll-mt-24">
+        <h3 class="text-3xl font-extrabold mb-8 text-enit-blue border-b-4 border-enit-yellow inline-block pb-1 section-title-enit">Ateliers <span class="text-gray-400 text-sm font-normal">ENIT EVENT</span></h3>
+        <div id="formation2-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+            <p class="text-gray-400">Chargement...</p>
+        </div>
+    </section>
+
+    <!-- Section Formations -->
+    <section id="formation" class="max-w-7xl mx-auto px-6 py-12 scroll-mt-24">
+        <h3 class="text-3xl font-extrabold mb-8 text-enit-blue border-b-4 border-enit-yellow inline-block pb-1 section-title-enit">Formations <span class="text-gray-400 text-sm font-normal">ENIT EVENT</span></h3>
+        <div id="formation-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+            <p class="text-gray-400">Chargement...</p>
+        </div>
+    </section>
+
+    </section>
+
+    <!-- AI Chat Section -->
+    <section id="chat" class="max-w-4xl mx-auto px-6 py-12 scroll-mt-24">
+        <h3 class="text-3xl font-extrabold mb-8 text-enit-blue border-b-4 border-enit-yellow inline-block pb-1 section-title-enit">
+            AI Assistant <span class="text-gray-400 text-sm font-normal">Poser vos questions</span>
+        </h3>
+        <div class="glass rounded-2xl shadow-xl overflow-hidden flex flex-col h-[600px] border border-gray-200">
+            <!-- Messages Area -->
+            <div id="chat-messages" class="flex-1 p-6 overflow-y-auto space-y-4 bg-gray-50/50">
+                <div class="flex gap-3">
+                    <div class="w-8 h-8 rounded-full bg-enit-blue flex items-center justify-center text-white text-xs font-bold shadow-sm">AI</div>
+                    <div class="bg-white p-3 rounded-2xl rounded-tl-none shadow-sm text-sm text-gray-700 max-w-[80%] border border-gray-100">
+                        Bonjour ! Je suis l'assistant virtuel de l'ENIT. Je peux répondre à vos questions sur les événements à venir. Comment puis-je vous aider ?
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Input Area -->
+            <form id="chat-form" class="p-4 bg-white border-t border-gray-100 flex gap-3 items-center">
+                <input type="text" id="chat-input" 
+                    class="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-enit-blue/20 focus:border-enit-blue outline-none transition-all text-sm"
+                    placeholder="Posez votre question ici..." required>
+                <button type="submit" 
+                    class="p-3 bg-enit-blue text-white rounded-xl hover:bg-blue-900 transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+                    </svg>
+                </button>
+            </form>
+        </div>
+    </section>
+
+    <script src="app.js"></script>
+</body>
