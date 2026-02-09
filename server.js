@@ -7,7 +7,7 @@ const mysql = require("mysql2/promise");
 const app = express();
 
 
-const { OpenAI } = require('openai');
+// Middlewares
 require('dotenv').config();
 
 
@@ -20,12 +20,18 @@ app.use('/uploads', express.static('uploads'));
 // Configuration de Multer
 const upload = multer({ dest: 'uploads/' });
 
+// Admin list (Hardcoded by email)
+const ADMIN_EMAILS = ['admin@enit.tn', 'yacine@enit.tn'];
+
 // Configuration de la base de données
 const dbConfig = {
-    host: '127.0.0.1',
+    host: 'localhost',
+    port: 3306,
     user: 'root',
     password: '',
-    database: 'enit_event_db'
+    database: 'enit_event_db',
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0
 };
 
 let pool;
@@ -53,6 +59,29 @@ async function initDB() {
             )
         `;
         await pool.query(createTableQuery);
+
+        const createUsersTableQuery = `
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(255) NOT NULL UNIQUE,
+                email VARCHAR(255) NOT NULL UNIQUE,
+                password VARCHAR(255) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `;
+        await pool.query(createUsersTableQuery);
+
+        const createParticipationTableQuery = `
+            CREATE TABLE IF NOT EXISTS participation (
+                user_email VARCHAR(255),
+                event_id BIGINT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_email, event_id),
+                FOREIGN KEY (user_email) REFERENCES users(email) ON DELETE CASCADE,
+                FOREIGN KEY (event_id) REFERENCES enit_events(id) ON DELETE CASCADE
+            )
+        `;
+        await pool.query(createParticipationTableQuery);
         console.log(" Base de données MySQL prête");
     } catch (err) {
         console.error(" Erreur MySQL Détails:", err);
@@ -75,6 +104,8 @@ app.post('/events', upload.fields([
     { name: 'affiche', maxCount: 1 },
     { name: 'fiche', maxCount: 1 }
 ]), async (req, res) => {
+    console.log("[EVENT] Received new event request:", req.body);
+    console.log("[EVENT] Received files:", req.files ? Object.keys(req.files) : "none");
     try {
         const newEvent = {
             id: Date.now(),
@@ -120,98 +151,106 @@ app.delete('/events/:id', async (req, res) => {
     }
 });
 
-const { GoogleGenerativeAI } = require("@google/generative-ai");
-require('dotenv').config();
+// End of event endpoints
 
-// ... existing code ...
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const bcrypt = require('bcrypt');
+const session = require('express-session');
 
-// Helper to get an available model
-async function getGenerativeModel() {
+// Add session middleware after other middlewares
+app.use(session({
+    secret: 'bouja',
+    resave: false,
+    saveUninitialized: false,
+    cookie: { maxAge: 24 * 60 * 60 * 1000 }
+}));
+
+// SIGN UP
+app.post('/signup', async (req, res) => {
+    const { username, email, password } = req.body;
     try {
-        // Try standard models in order
-        const candidates = ["gemini-1.5-flash", "gemini-1.5-flash-latest", "gemini-pro", "gemini-1.0-pro"];
-        for (const name of candidates) {
-            try {
-                const model = genAI.getGenerativeModel({ model: name });
-                // Light check
-                await model.generateContent("Test"); 
-                console.log(`✅ Using Model: ${name}`);
-                return model;
-            } catch (e) {
-                // Continue to next candidate
-            }
-        }
-        // If specific ones fail, try standard 'gemini-pro' as last resort without check
-        return genAI.getGenerativeModel({ model: "gemini-pro" });
-    } catch (e) {
-        return genAI.getGenerativeModel({ model: "gemini-pro" });
-    }
-}
-
-app.post('/chat', async (req, res) => {
-    const { message } = req.body;
-    try {
-        // Fetch events for context
-        const [rows] = await pool.query("SELECT * FROM enit_events");
-        const eventsContext = rows.map(e => 
-            `- ${e.titre} (${e.date}) à ${e.lieu}: ${e.description}`
-        ).join('\n');
-
-        const systemPrompt = `Tu es un assistant virtuel pour l'ENIT (Ecole Nationale d'Ingénieurs de Tunis).
-        Voici la liste des événements à venir :
-        ${eventsContext}
-        
-        Réponds aux questions des utilisateurs sur ces événements de manière courtoise et informative.
-        Si la réponse n'est pas dans la liste, dis que tu ne sais pas.`;
-
-        // Get working model
-        const model = await getGenerativeModel();
-        
-        const chat = model.startChat({
-            history: [
-                {
-                    role: "user",
-                    parts: [{ text: systemPrompt }],
-                },
-                {
-                    role: "model",
-                    parts: [{ text: "Compris. Je suis prêt." }],
-                },
-            ],
-        });
-
-        const result = await chat.sendMessage(message);
-        const response = await result.response;
-        const text = await response.text();
-
-        res.json({ response: text });
-
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await pool.query(
+            "INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
+            [username, email, hashedPassword]
+        );
+        res.status(201).json({ message: "Compte créé !" });
     } catch (error) {
-        console.error("Gemini Error:", error);
+        res.status(500).json({ error: "Email ou pseudo déjà utilisé." });
+    }
+});
 
-        // FALLBACK LOGIC (Offline Mode)
-        try {
-            console.log("⚠️ Switching to Offline Fallback");
-            const [rows] = await pool.query("SELECT * FROM enit_events");
-            const lowerMsg = message.toLowerCase();
-            
-            const matches = rows.filter(e => 
-                e.titre.toLowerCase().includes(lowerMsg) || 
-                e.description?.toLowerCase().includes(lowerMsg) ||
-                e.categorie?.toLowerCase().includes(lowerMsg)
-            );
+// SIGN IN
+app.post('/signin', async (req, res) => {
+    const { email, password } = req.body;
+    try {
+        const [users] = await pool.query("SELECT * FROM users WHERE email = ?", [email]);
+        if (users.length === 0) return res.status(401).json({ error: "Utilisateur non trouvé" });
 
-            if (matches.length > 0) {
-                const responseText = "⚠️ **Mode Hors-Ligne (Erreur IA)**\n\nVoici les événements trouvés :\n\n" + 
-                    matches.map(e => `🔹 **${e.titre}**\n📅 ${e.date} | 📍 ${e.lieu}\n📝 ${e.description}`).join('\n\n');
-                res.json({ response: responseText });
-            } else {
-                res.json({ response: "⚠️ **Mode Hors-Ligne**\n\nJe ne peux pas joindre l'IA pour le moment et aucun événement ne correspond à votre recherche." });
-            }
-        } catch (dbError) {
-            res.status(500).json({ error: "Service indisponible." });
+        const user = users[0];
+        const match = await bcrypt.compare(password, user.password);
+        if (!match) return res.status(401).json({ error: "Mot de passe incorrect" });
+
+        req.session.userId = user.id;
+        req.session.username = user.username;
+        req.session.email = user.email;
+        const normalizedEmail = user.email.trim().toLowerCase();
+        const isAdmin = ADMIN_EMAILS.map(e => e.toLowerCase()).includes(normalizedEmail);
+        console.log(`[AUTH] Login success: ${user.email} -> isAdmin: ${isAdmin}`);
+        console.log(`[AUTH] Compared against: ${JSON.stringify(ADMIN_EMAILS)}`);
+        res.json({ username: user.username, isAdmin });
+    } catch (error) {
+        console.error("[AUTH] Login error:", error);
+        res.status(500).json({ error: "Erreur serveur" });
+    }
+});
+
+app.get('/debug-users', async (req, res) => {
+    try {
+        const [rows] = await pool.query("SELECT id, username, email FROM users");
+        res.json({ admins: ADMIN_EMAILS, users: rows });
+    } catch (e) { res.status(500).send(e.message); }
+});
+
+// GET CURRENT USER / SESSION
+app.get('/me', (req, res) => {
+    if (req.session.userId) {
+        const email = req.session.email || "";
+        const isAdmin = ADMIN_EMAILS.map(e => e.toLowerCase()).includes(email.toLowerCase());
+        console.log(`[Session] User: ${req.session.username}, Email: ${email}, isAdmin: ${isAdmin}`);
+        res.json({ 
+            loggedIn: true, 
+            username: req.session.username,
+            isAdmin
+        });
+    } else {
+        res.json({ loggedIn: false });
+    }
+});
+
+app.post('/logout', (req, res) => {
+    req.session.destroy();
+    res.json({ message: "Déconnecté" });
+});
+
+app.post('/participate', async (req, res) => {
+    if (!req.session.userId) return res.status(401).json({ error: "Veuillez vous connecter" });
+
+    const { eventId } = req.body;
+    const email = req.session.email;
+
+    try {
+        await pool.query(
+            "INSERT INTO participation (user_email, event_id) VALUES (?, ?)",
+            [email, eventId]
+        );
+        res.json({ message: "Participation enregistrée !" });
+    } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            res.status(400).json({ error: "Vous participez déjà à cet événement" });
+        } else {
+            console.error("[PARTICIPATE] Error:", error);
+            res.status(500).json({ error: "Erreur lors de l'enregistrement" });
         }
     }
 });
