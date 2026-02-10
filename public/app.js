@@ -482,4 +482,4 @@ function updateUserUI(username, isAdmin) {
     }
 }
 
-// End of app.js
+
